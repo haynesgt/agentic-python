@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:17
+    ports:
+      - "25432:5432"
+    volumes:
+      - "pg-data:/var/lib/postgresql/data"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    depends_on:
+      - postgres
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=postgres
+      - POSTGRES_SEEDS=postgres
+      - POSTGRES_DB=temporal
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development.yaml
+      - TEMPORAL_UI_ENABLED=true
+    volumes:
+      - ./dynamicconfig:/etc/temporal/config/dynamicconfig
+    entrypoint: temporal
+    command: server start-dev --ui-ip 0.0.0.0 --ip 0.0.0.0
+    restart: on-failure
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: server
+    ports:
+      - "3000:3000"
+      - "5005:5005"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - DB=agentic_dev
+      - DB_PORT=5432
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASS=postgres
+    #command: ["bash", "-c", "echo hi"]
+    command: ["bash", "-c", "java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=0.0.0.0:5005 -jar app.jar"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - DB=agentic_dev
+      - DB_PORT=5432
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASS=postgres
+
+volumes:
+  pg-data:
