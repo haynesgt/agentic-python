@@ -14,21 +14,28 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Dependency layer; cached as long as requirements.txt is unchanged
+# Install Poetry and cache dependencies
 FROM base AS deps
-COPY requirements.txt ./
+ENV POETRY_VERSION=2.2.1 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    PATH="/root/.local/bin:${PATH}"
+
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip \
-    && pip install --no-warn-script-location --user -r requirements.txt
+    pip install --no-warn-script-location --user "poetry==${POETRY_VERSION}"
+
+COPY pyproject.toml poetry.lock* ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/pypoetry \
+    poetry install --no-root --no-interaction --no-ansi
 
 # Final runtime image
 FROM python:3.13-slim AS app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH=/root/.local/bin:$PATH
+    PATH="/root/.local/bin:${PATH}"
 WORKDIR /app
 
-COPY --from=deps /root/.local /root/.local
+COPY --from=deps /usr/local /usr/local
 COPY . .
 
 EXPOSE 8000
