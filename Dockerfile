@@ -42,7 +42,10 @@ EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM app AS server
-CMD ["uvicorn", "app.main:server", "--host", "0.0.0.0", "--port", "8000"]
+ARG PORT=8000
+ENV PORT=${PORT}
+EXPOSE ${PORT}
+CMD ["sh", "-c", "uvicorn app.server:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
 FROM app AS worker
-CMD ["uvicorn", "app.main:worker", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "app.worker"]
