@@ -9,6 +9,18 @@ license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastapi (>=0.124.4,<0.125.0)",
+    "uvicorn[standard] (>=0.38.0,<0.39.0)",
+    "pydantic (>=2.12.5,<3.0.0)",
+    "pydantic-settings (>=2.12.0,<3.0.0)",
+    "sqlalchemy (>=2.0.45,<3.0.0)",
+    "psycopg[binary,pool] (>=3.3.2,<4.0.0)",
+    "alembic (>=1.17.2,<2.0.0)",
+    "temporalio (>=1.20.0,<2.0.0)",
+    "httpx (>=0.28.1,<0.29.0)",
+    "orjson (>=3.11.5,<4.0.0)",
+    "uvloop (>=0.22.1,<0.23.0)",
+    "tenacity (>=9.1.2,<10.0.0)"
 ]
 
 

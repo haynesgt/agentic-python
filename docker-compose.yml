@@ -47,8 +47,6 @@ services:
       - POSTGRES_HOST=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASS=postgres
-    #command: ["bash", "-c", "echo hi"]
-    command: ["bash", "-c", "java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=0.0.0.0:5005 -jar app.jar"]
 
   worker:
     build:

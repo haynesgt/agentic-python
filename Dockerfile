@@ -33,3 +33,9 @@ COPY . .
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+FROM app AS server
+CMD ["uvicorn", "app.main:server", "--host", "0.0.0.0", "--port", "8000"]
+
+FROM app AS worker
+CMD ["uvicorn", "app.main:worker", "--host", "0.0.0.0", "--port", "8000"]
