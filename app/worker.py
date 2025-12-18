@@ -1,26 +1,18 @@
 import asyncio
 import logging
-import os
-from datetime import timedelta
-from uuid import uuid4
 
-from fastapi import FastAPI
-from pydantic import BaseModel
-from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from app.activities import greet
 from app.config import (
     TEMPORAL_ADDRESS,
     TEMPORAL_NAMESPACE,
     TEMPORAL_TASK_QUEUE,
 )
-
 from app.workflows import HelloWorkflow
-from app.activities import greet
 
 logger = logging.getLogger(__name__)
-
 
 
 async def _run_worker() -> None:
@@ -41,7 +33,6 @@ async def _run_worker() -> None:
         TEMPORAL_TASK_QUEUE,
     )
     await worker.run()
-
 
 
 if __name__ == "__main__":

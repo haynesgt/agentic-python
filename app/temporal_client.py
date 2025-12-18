@@ -1,14 +1,6 @@
-import asyncio
 import logging
-import os
-from datetime import timedelta
-from uuid import uuid4
 
-from fastapi import FastAPI
-from pydantic import BaseModel
-from temporalio import activity, workflow
 from temporalio.client import Client
-from temporalio.worker import Worker
 
 from app.config import (
     TEMPORAL_ADDRESS,
@@ -19,6 +11,7 @@ from app.config import (
 logger = logging.getLogger(__name__)
 
 temporal_client: Client | None = None
+
 
 async def get_temporal_client() -> Client:
     """Lazy-init Temporal client; reuse across requests."""
