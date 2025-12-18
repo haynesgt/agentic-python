@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY pyproject.toml poetry.lock* ./
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/root/.cache/pypoetry \
-    poetry install --no-root --no-interaction --no-ansi
+    poetry install --with dev --no-root --no-interaction --no-ansi
 
 # Final runtime image
 FROM python:3.13-slim AS app
@@ -47,5 +47,8 @@ ENV PORT=${PORT}
 EXPOSE ${PORT}
 CMD ["sh", "-c", "uvicorn app.server:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
+FROM server AS server-debug
+CMD ["sh", "-c", "PYDEVD_DISABLE_FILE_VALIDATION=1 debugpy --listen 0.0.0.0:5678 -m uvicorn app.server:app --reload --host 0.0.0.0 --port ${PORT:-8000}"]
+
 FROM app AS worker
-CMD ["python", "-m", "app.worker"]
+CMD ["python", "-m", "app.temporal_worker"]

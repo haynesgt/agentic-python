@@ -36,12 +36,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: server
+      target: server-debug
       args:
-        - PORT=3000
+        - PORT=8000
+    volumes:
+      - ./:/app
     ports:
-      - "3000:3000"
-      - "5005:5005"
+      - "8000:8000"
+      - "5678:5678"
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - DB=agentic_dev
