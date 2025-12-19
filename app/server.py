@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from uuid import uuid4
 
@@ -9,7 +10,7 @@ from app.config import (
     TEMPORAL_TASK_QUEUE,
 )
 from app.openai_client import openai_client
-from app.simple_agent import simple_agent
+from app.simple_agent import SimpleAgentDeps, simple_agent
 from app.temporal_client import get_temporal_client, temporal_client
 from app.workflows import HelloWorkflow
 
@@ -63,6 +64,10 @@ async def get_ai_response(path: str) -> HelloResponse:
 
 
 @app.get("/ai-agent")
-async def get_ai_agent_response(query: str) -> HelloResponse:
-    response = await simple_agent.run(query)
-    return HelloResponse(workflow_id="n/a", message=response.output.message)
+async def get_ai_agent_response(query: str) -> str | None:
+    response_event = asyncio.get_running_loop().create_future()
+    agent_run = simple_agent.run(
+        query, deps=SimpleAgentDeps(handle_response=response_event.set_result)
+    )
+    asyncio.create_task(agent_run)
+    return await response_event

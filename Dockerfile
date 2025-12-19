@@ -48,7 +48,7 @@ EXPOSE ${PORT}
 CMD ["sh", "-c", "uvicorn app.server:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
 FROM server AS server-debug
-CMD ["sh", "-c", "PYDEVD_DISABLE_FILE_VALIDATION=1 debugpy --listen 0.0.0.0:5678 -m uvicorn app.server:app --reload --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "PYDEVD_DISABLE_FILE_VALIDATION=1 debugpy --listen 0.0.0.0:5678 -m uvicorn --log-level debug app.server:app --reload --host 0.0.0.0 --port ${PORT:-8000}"]
 
 FROM app AS worker
 CMD ["python", "-m", "app.temporal_worker"]
