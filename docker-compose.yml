@@ -32,6 +32,21 @@ services:
     command: server start-dev --ui-ip 0.0.0.0 --ip 0.0.0.0
     restart: on-failure
 
+  llm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm
+    runtime: nvidia   # remove if CPU-only
+    ports:
+      - "8150:8150"
+    volumes:
+      - ./models:/models
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    command: >
+      --model microsoft/Phi-3.5-mini-instruct
+      --host 0.0.0.0
+      --port 8150
+
   server:
     build:
       context: .
@@ -51,6 +66,9 @@ services:
       - POSTGRES_HOST=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASS=postgres
+      - OPENAI_ADDRESS=http://llm:8150/v1
+      - OPENAI_MODEL=microsoft/Phi-3.5-mini-instruct
+      - OPENAI_API_KEY=dummy_key
 
   worker:
     build:
