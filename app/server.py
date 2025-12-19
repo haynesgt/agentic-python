@@ -8,10 +8,10 @@ from app.config import (
     OPENAI_MODEL,
     TEMPORAL_TASK_QUEUE,
 )
+from app.openai_client import openai_client
+from app.simple_agent import simple_agent
 from app.temporal_client import get_temporal_client, temporal_client
 from app.workflows import HelloWorkflow
-
-from .openai_client import openai_client
 
 logger = logging.getLogger(__name__)
 
@@ -60,3 +60,9 @@ async def get_ai_response(path: str) -> HelloResponse:
         input=path,
     )
     return HelloResponse(workflow_id="n/a", message=response.output[0].content[0].text)
+
+
+@app.get("/ai-agent")
+async def get_ai_agent_response(query: str) -> HelloResponse:
+    response = await simple_agent.run(query)
+    return HelloResponse(workflow_id="n/a", message=response.output.message)
