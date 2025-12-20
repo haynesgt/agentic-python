@@ -1,9 +1,12 @@
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from pydantic_ai.result import StreamedRunResult
 
 from app.config import (
     OPENAI_MODEL,
@@ -71,3 +74,30 @@ async def get_ai_agent_response(query: str) -> str | None:
     )
     asyncio.create_task(agent_run)
     return await response_event
+
+
+@app.get("/ai-agent-stream")
+async def get_ai_agent_stream_response(query: str):
+    response_event = asyncio.get_running_loop().create_future()
+
+    def handle_response(message: str):
+        logger.info(f"Final response: {message}")
+        if not response_event.done():
+            response_event.set_result(message)
+
+    class MyOutput(BaseModel):
+        chunk: str
+
+    async def gen():
+        from pydantic_ai import Agent
+
+        agent = Agent(simple_agent.model)
+        async with agent.run_stream(
+            query, deps=SimpleAgentDeps(handle_response=handle_response)
+        ) as stream:
+            if TYPE_CHECKING:
+                stream: StreamedRunResult[MyOutput]
+            async for chunk in stream.stream_text(delta=True, debounce_by=0.01):
+                yield chunk
+
+    return StreamingResponse(gen(), media_type="text/plain")
