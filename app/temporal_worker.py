@@ -10,6 +10,7 @@ from app.config import (
     TEMPORAL_NAMESPACE,
     TEMPORAL_TASK_QUEUE,
 )
+from app.workflows.agent_workflow import AgentWorkflow
 from app.workflows.hello_workflow import HelloWorkflow
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ async def _run_worker() -> None:
     worker = Worker(
         client,
         task_queue=TEMPORAL_TASK_QUEUE,
-        workflows=[HelloWorkflow],
+        workflows=[HelloWorkflow, AgentWorkflow],
         activities=[greet],
     )
     logger.info(

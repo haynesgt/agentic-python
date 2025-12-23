@@ -101,3 +101,18 @@ async def get_ai_agent_stream_response(query: str):
                 yield chunk
 
     return StreamingResponse(gen(), media_type="text/plain")
+
+
+@app.get("/agent-workflow")
+async def get_agent_workflow_response(query: str) -> str | None:
+    from app.workflows.agent_workflow import AgentWorkflow
+
+    workflow = await (await get_temporal_client()).execute_workflow(
+        AgentWorkflow.run,
+        id=f"agent-workflow-{uuid4()}",
+        task_queue=TEMPORAL_TASK_QUEUE,
+        start_signal="ask_agent",
+        start_signal_args=[query],
+    )
+
+    return workflow
