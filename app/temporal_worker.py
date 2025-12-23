@@ -4,7 +4,7 @@ import logging
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from app.activities import greet
+from app.activities.greet_activity import greet
 from app.config import (
     TEMPORAL_ADDRESS,
     TEMPORAL_NAMESPACE,

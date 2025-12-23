@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from temporalio import workflow
 
-from app.activities import greet
+from app.activities.greet_activity import greet
 
 
 @workflow.defn
