@@ -1,12 +1,15 @@
 import asyncio
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import temporalio.common
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic_ai.result import StreamedRunResult
+from temporalio.client import WithStartWorkflowOperation
 
 from app.config import (
     OPENAI_MODEL,
@@ -107,12 +110,16 @@ async def get_ai_agent_stream_response(query: str):
 async def get_agent_workflow_response(query: str) -> str | None:
     from app.workflows.agent_workflow import AgentWorkflow
 
-    workflow = await (await get_temporal_client()).execute_workflow(
-        AgentWorkflow.run,
-        id=f"agent-workflow-{uuid4()}",
-        task_queue=TEMPORAL_TASK_QUEUE,
-        start_signal="ask_agent",
-        start_signal_args=[query],
+    workflow_result = await (await get_temporal_client()).execute_update_with_start_workflow(
+        AgentWorkflow.ask_agent,
+        args=[query],
+        start_workflow_operation=WithStartWorkflowOperation(
+            AgentWorkflow.run,
+            id=f"agent-workflow-{uuid4()}",
+            id_conflict_policy=temporalio.common.WorkflowIDConflictPolicy.USE_EXISTING,
+            task_queue=TEMPORAL_TASK_QUEUE,
+            execution_timeout=timedelta(seconds=20),
+        ),
     )
 
-    return workflow
+    return workflow_result

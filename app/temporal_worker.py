@@ -2,8 +2,9 @@ import asyncio
 import logging
 
 from temporalio.client import Client
-from temporalio.worker import Worker
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+import app.activities.agent_pydanticai_activity
 from app.activities.greet_activity import greet
 from app.config import (
     TEMPORAL_ADDRESS,
@@ -25,7 +26,9 @@ async def _run_worker() -> None:
         client,
         task_queue=TEMPORAL_TASK_QUEUE,
         workflows=[HelloWorkflow, AgentWorkflow],
-        activities=[greet],
+        activities=[greet, app.activities.agent_pydanticai_activity.get_response],
+        debug_mode=True,
+        workflow_runner=UnsandboxedWorkflowRunner(),
     )
     logger.info(
         "Temporal worker starting (address=%s, namespace=%s, task_queue=%s)",

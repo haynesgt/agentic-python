@@ -79,7 +79,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: worker
+      target: worker-debug
+    ports:
+      - "5679:5678"
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - DB=agentic_dev

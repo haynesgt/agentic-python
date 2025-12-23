@@ -52,3 +52,6 @@ CMD ["sh", "-c", "PYDEVD_DISABLE_FILE_VALIDATION=1 debugpy --listen 0.0.0.0:5678
 
 FROM app AS worker
 CMD ["python", "-m", "app.temporal_worker"]
+
+FROM worker AS worker-debug
+CMD ["sh", "-c", "PYDEVD_DISABLE_FILE_VALIDATION=1 debugpy --listen 0.0.0.0:5678 -m app.temporal_worker"]
