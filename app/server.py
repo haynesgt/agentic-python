@@ -15,7 +15,7 @@ from app.config import (
 from app.openai_client import openai_client
 from app.simple_agent import SimpleAgentDeps, simple_agent
 from app.temporal_client import get_temporal_client, temporal_client
-from app.workflows import HelloWorkflow
+from app.workflows.hello_workflow import HelloWorkflow
 
 logger = logging.getLogger(__name__)
 

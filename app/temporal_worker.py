@@ -10,7 +10,7 @@ from app.config import (
     TEMPORAL_NAMESPACE,
     TEMPORAL_TASK_QUEUE,
 )
-from app.workflows import HelloWorkflow
+from app.workflows.hello_workflow import HelloWorkflow
 
 logger = logging.getLogger(__name__)
 
