@@ -13,6 +13,7 @@ from app.config import (
 )
 from app.workflows.agent_workflow import AgentWorkflow
 from app.workflows.hello_workflow import HelloWorkflow
+from app.workflows.simple_agent_workflow import SimpleAgentWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ async def _run_worker() -> None:
     worker = Worker(
         client,
         task_queue=TEMPORAL_TASK_QUEUE,
-        workflows=[HelloWorkflow, AgentWorkflow],
+        workflows=[HelloWorkflow, AgentWorkflow, SimpleAgentWorkflow],
         activities=[greet, app.activities.agent_pydanticai_activity.get_response],
         debug_mode=True,
         workflow_runner=UnsandboxedWorkflowRunner(),

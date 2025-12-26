@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import temporalio.common
@@ -19,6 +19,7 @@ from app.openai_client import openai_client
 from app.simple_agent import SimpleAgentDeps, simple_agent
 from app.temporal_client import get_temporal_client, temporal_client
 from app.workflows.hello_workflow import HelloWorkflow
+from app.workflows.simple_agent_workflow import SimpleAgentWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -122,4 +123,16 @@ async def get_agent_workflow_response(query: str) -> str | None:
         ),
     )
 
+    return workflow_result
+
+
+@app.get("/simple-agent-workflow")
+async def get_simple_agent_workflow_response(query: str) -> Any:
+    workflow_result = await (await get_temporal_client()).execute_workflow(
+        SimpleAgentWorkflow.run,
+        args=[query],
+        id=f"simple-agent-workflow-{uuid4()}",
+        task_queue=TEMPORAL_TASK_QUEUE,
+        execution_timeout=timedelta(seconds=30),
+    )
     return workflow_result

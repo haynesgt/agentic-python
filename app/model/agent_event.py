@@ -1,34 +1,39 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 from temporalio import workflow
 
 
-class AgentEvent(BaseModel):
+class TextContent(BaseModel):
+    text: str
+
+
+class BaseAgentEvent(BaseModel):
     type: str
     id: str
     timestamp: float
-    content: Any
 
+    # init with generated id and timestamp
     @classmethod
-    def create(cls, type: str, content: Any) -> "AgentEvent":
+    def create(cls, **data: Any) -> "BaseAgentEvent":
         return cls(
-            type=type,
             id=str(workflow.uuid4()),
             timestamp=workflow.now().timestamp(),
-            content=content,
+            **data,
         )
 
 
-class QuestionEvent(AgentEvent):
-    type: str = "question"
-    content: dict[str, str]
+class QuestionEvent(BaseAgentEvent):
+    type: Literal["question"] = "question"
+    content: TextContent
 
 
-class AnswerEvent(AgentEvent):
-    type: str = "answer"
+class AnswerEvent(BaseAgentEvent):
+    type: Literal["answer"] = "answer"
     question_id: str
-    content: dict[str, str]
+    content: TextContent
 
 
 AgentResponseType = AnswerEvent
+
+AgenticEvent = BaseAgentEvent | QuestionEvent | AnswerEvent

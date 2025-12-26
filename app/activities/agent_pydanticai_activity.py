@@ -1,11 +1,13 @@
+import json
+from functools import lru_cache
+
 from temporalio import activity
 
 from app import config
-from app.model.agent_event import AgentEvent, AgentResponseType
 
 
-@activity.defn
-async def get_response(history: list[AgentEvent]) -> AgentResponseType:
+@lru_cache
+def get_agent():
     from pydantic_ai import Agent
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
@@ -19,8 +21,12 @@ async def get_response(history: list[AgentEvent]) -> AgentResponseType:
     )
     simple_agent = Agent(
         model,
-        output_type=AgentResponseType,
-        system_prompt="",
+        system_prompt="You will be given a list of events that happened to the model. Take actions as needed and return a response if necessary.",
     )
-    response = await simple_agent.run(history)
-    return response
+    return simple_agent
+
+
+@activity.defn
+async def get_response(history: list[dict]) -> str:
+    response = await get_agent().run(json.dumps(history))  # util.dumps(history))
+    return response.output
