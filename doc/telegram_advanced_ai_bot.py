@@ -236,24 +236,32 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         builtin_tools=[WebSearchTool(), WebFetchTool()],
     )
 
+    run_task: asyncio.Task
+
+    def cancel_on_update(_: Any) -> Awaitable[None]:
+        run_task.cancel()
+
     async def run():
-        conversation.events.append(
-            {
-                "type": "agent_start",
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
-        )
-        result = await agent.run(
-            user_prompt=conversation.model_dump_json(),
-        )
-        logger.info("Result: %s", result)
-        cancel_event.set()
-        remove_event(cancel_event)
+        async with conversation.event_bus.onoff(
+            Conversation.EventType.USER_MESSAGE, cancel_on_update
+        ):
+            conversation.events.append(
+                {
+                    "type": "agent_start",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+            result = await agent.run(
+                user_prompt=conversation.model_dump_json(),
+            )
+            logger.info("Result: %s", result)
+            cancel_event.set()
+            remove_event(cancel_event)
 
     run_task = asyncio.create_task(run())
 
     async def handle_cancellation():
-        await cancel_event.wait()
+        await asyncio.wait([cancel_event.wait(), run_task])
         if not run_task.done():
             run_task.cancel()
 
