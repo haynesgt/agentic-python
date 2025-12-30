@@ -1,8 +1,10 @@
 import asyncio
+import enum
 import logging
 import os
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import Generic, TypeVar
 
 import logfire
 from pydantic import BaseModel
@@ -12,23 +14,25 @@ from telegram import Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
+T = TypeVar("T")
 
-class AsyncEventBus:
+
+class AsyncEventBus(Generic[T]):
     def __init__(self):
         self._handlers = defaultdict(set)
 
-    def on(self, event, fn):
+    def on(self, event: T, fn):
         self._handlers[event].add(fn)
 
-    def off(self, event, fn):
+    def off(self, event: T, fn):
         self._handlers[event].discard(fn)
 
-    def onoff(self, event, fn):
+    def onoff(self, event: T, fn):
         self.on(event, fn)
         yield
         self.off(event, fn)
 
-    async def emit(self, event, payload):
+    async def emit(self, event: T, payload):
         asyncio.create_task(
             asyncio.gather(
                 *(fn(payload) for fn in self._handlers[event]),
@@ -87,8 +91,14 @@ def remove_event(event: asyncio.Event):
 
 
 class Conversation(BaseModel):
+    class Events(enum.Enum):
+        USER_MESSAGE = "user_message"
+        BOT_MESSAGE = "bot_message"
+        AGENT_START = "agent_start"
+
     events: list[dict] = []
     cancel_events: list[int] = []
+    event_bus: AsyncEventBus[Events] = AsyncEventBus()
 
     def cancel_all(self, except_event: asyncio.Event | None = None):
         for event_id in self.cancel_events:
@@ -122,6 +132,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         }
     )
     conversation.cancel_events.append(add_event(cancel_event))
+    conversation.event_bus.emit(
+        Conversation.Events.USER_MESSAGE.value, {"chat_id": chat_id, "text": user_text}
+    )
     asyncio.create_task(context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING))
 
     async def wait_seconds(seconds: float):
