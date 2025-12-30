@@ -36,6 +36,7 @@ build-backend = "poetry.core.masonry.api"
 pre-commit = ">=3.8.0,<4.0.0"
 ruff = ">=0.6.4,<0.7.0"
 debugpy = "^1.8.19"
+pyright = "^1.1.407"
 
 [tool.ruff]
 target-version = "py313"

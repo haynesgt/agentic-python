@@ -3,8 +3,9 @@ import enum
 import logging
 import os
 from collections import defaultdict
+from collections.abc import Awaitable, Callable, Generator
 from datetime import UTC, datetime, timedelta
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypedDict, TypeVar
 
 import logfire
 from pydantic import BaseModel
@@ -15,29 +16,33 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 T = TypeVar("T")
+U = TypeVar("U")
 
 
-class AsyncEventBus(Generic[T]):
+class AsyncEventBus(Generic[T, U]):
+    # Handler_Type = Callable[[U], Awaitable[None]]
+    _handlers: defaultdict[T, set[Callable[[U], Awaitable[None]]]]
+
     def __init__(self):
-        self._handlers = defaultdict(set)
+        self._handlers = defaultdict(set[Callable[[U], Awaitable[None]]])
 
-    def on(self, event: T, fn):
-        self._handlers[event].add(fn)
+    def on(self, event_type: T, fn: Callable[[U], Awaitable[None]]) -> None:
+        self._handlers[event_type].add(fn)
 
-    def off(self, event: T, fn):
-        self._handlers[event].discard(fn)
+    def off(self, event_type: T, fn: Callable[[U], Awaitable[None]]) -> None:
+        self._handlers[event_type].discard(fn)
 
-    def onoff(self, event: T, fn):
-        self.on(event, fn)
+    def onoff(
+        self, event_type: T, fn: Callable[[U], Awaitable[None]]
+    ) -> Generator[None, None, None]:
+        self.on(event_type, fn)
         yield
-        self.off(event, fn)
+        self.off(event_type, fn)
 
-    async def emit(self, event: T, payload):
-        asyncio.create_task(
-            asyncio.gather(
-                *(fn(payload) for fn in self._handlers[event]),
-                return_exceptions=True,
-            )
+    def emit(self, event_type: T, payload: U) -> asyncio.Future[Any]:
+        return asyncio.gather(
+            *(fn(payload) for fn in self._handlers[event_type]),
+            return_exceptions=True,
         )
 
 
@@ -76,12 +81,13 @@ As well, function execution is not instantaneous:
 
 MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-5.2")
 
-events: defaultdict[int, asyncio.Event] = defaultdict(list)
+events: dict[int, asyncio.Event] = {}
 
 
-def add_event(event: asyncio.Event):
+def add_event(event: asyncio.Event) -> int:
     new_id = id(event)
     events[new_id] = event
+    return new_id
 
 
 def remove_event(event: asyncio.Event):
@@ -91,14 +97,19 @@ def remove_event(event: asyncio.Event):
 
 
 class Conversation(BaseModel):
-    class Events(enum.Enum):
+    class EventType(enum.Enum):
         USER_MESSAGE = "user_message"
         BOT_MESSAGE = "bot_message"
         AGENT_START = "agent_start"
 
-    events: list[dict] = []
+    class Event(TypedDict, total=False):
+        type: str
+        text: str | None
+        timestamp: str
+
+    events: list[Event] = []
     cancel_events: list[int] = []
-    event_bus: AsyncEventBus[Events] = AsyncEventBus()
+    event_bus: AsyncEventBus[EventType, Event] = AsyncEventBus()
 
     def cancel_all(self, except_event: asyncio.Event | None = None):
         for event_id in self.cancel_events:
@@ -119,8 +130,11 @@ def escape_markdown_v2(text: str) -> str:
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(update)
+    assert update.effective_chat is not None
     chat_id = update.effective_chat.id
-    user_text = update.message.text.strip()
+    message = update.message
+    assert message is not None
+    user_text = (message.text or "").strip()
     cancel_event = asyncio.Event()
 
     conversation = conversations[chat_id]
@@ -132,7 +146,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         }
     )
     conversation.cancel_events.append(add_event(cancel_event))
-    conversation.event_bus.emit("e", {"chat_id": chat_id, "text": user_text})
+    conversation.event_bus.emit(Conversation.EventType.USER_MESSAGE, {"text": user_text})
     asyncio.create_task(context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING))
 
     async def wait_seconds(seconds: float):
@@ -153,7 +167,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if delay > 0:
             await asyncio.sleep(delay)
 
-    async def start_message() -> str:
+    async def start_message() -> int:
         """
         Starts a message by sending "..." and returning the message ID to be edited later.
         """

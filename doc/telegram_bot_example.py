@@ -10,12 +10,19 @@ from telegram.ext import (
     filters,
 )
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_KEY")
-assert BOT_TOKEN, "Please set the TELEGRAM_BOT_KEY environment variable."
+
+def require_env(var_name: str) -> str:
+    value = os.getenv(var_name)
+    if not value:
+        raise OSError(f"Please set the {var_name} environment variable.")
+    return value
+
+
+BOT_TOKEN = require_env("TELEGRAM_BOT_KEY")
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message and update.message.text:
+    if update.effective_chat and update.message and update.message.text:
         print(update)
         await context.bot.send_chat_action(
             chat_id=update.effective_chat.id,
