@@ -132,9 +132,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         }
     )
     conversation.cancel_events.append(add_event(cancel_event))
-    conversation.event_bus.emit(
-        Conversation.Events.USER_MESSAGE.value, {"chat_id": chat_id, "text": user_text}
-    )
+    conversation.event_bus.emit("e", {"chat_id": chat_id, "text": user_text})
     asyncio.create_task(context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING))
 
     async def wait_seconds(seconds: float):
