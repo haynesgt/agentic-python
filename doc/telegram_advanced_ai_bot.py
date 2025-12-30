@@ -3,7 +3,8 @@ import enum
 import logging
 import os
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Generator
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, Generic, TypedDict, TypeVar
 
@@ -18,23 +19,23 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 T = TypeVar("T")
 U = TypeVar("U")
 
+type EventBusHandler = Callable[[U], Awaitable[None]]
+
 
 class AsyncEventBus(Generic[T, U]):
-    # Handler_Type = Callable[[U], Awaitable[None]]
-    _handlers: defaultdict[T, set[Callable[[U], Awaitable[None]]]]
+    _handlers: defaultdict[T, set[EventBusHandler[U]]]
 
     def __init__(self):
-        self._handlers = defaultdict(set[Callable[[U], Awaitable[None]]])
+        self._handlers = defaultdict(set[EventBusHandler[U]])
 
-    def on(self, event_type: T, fn: Callable[[U], Awaitable[None]]) -> None:
+    def on(self, event_type: T, fn: EventBusHandler[U]) -> None:
         self._handlers[event_type].add(fn)
 
-    def off(self, event_type: T, fn: Callable[[U], Awaitable[None]]) -> None:
+    def off(self, event_type: T, fn: EventBusHandler[U]) -> None:
         self._handlers[event_type].discard(fn)
 
-    def onoff(
-        self, event_type: T, fn: Callable[[U], Awaitable[None]]
-    ) -> Generator[None, None, None]:
+    @contextmanager
+    def onoff(self, event_type: T, fn: EventBusHandler[U]) -> Iterator[None]:
         self.on(event_type, fn)
         yield
         self.off(event_type, fn)
