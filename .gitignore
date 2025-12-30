@@ -20,3 +20,4 @@ dist/
 .env
 
 models/
+*.db
