@@ -10,7 +10,7 @@ from typing import Any, Generic, TypedDict, TypeVar
 
 import logfire
 from pydantic import BaseModel
-from pydantic_ai import Agent, WebFetchTool, WebSearchTool
+from pydantic_ai import Agent, WebSearchTool
 from pydantic_ai.models.openai import OpenAIResponsesModel
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
@@ -19,7 +19,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 T = TypeVar("T")
 U = TypeVar("U")
 
-type EventBusHandler = Callable[[U], Awaitable[None]]
+type EventBusHandler[U] = Callable[[U], Awaitable[None]]
 
 
 class AsyncEventBus(Generic[T, U]):
@@ -97,20 +97,26 @@ def remove_event(event: asyncio.Event):
         del events[event_id]
 
 
-class Conversation(BaseModel):
-    class EventType(enum.Enum):
-        USER_MESSAGE = "user_message"
-        BOT_MESSAGE = "bot_message"
-        AGENT_START = "agent_start"
+class EventType(enum.Enum):
+    USER_MESSAGE = "user_message"
+    BOT_MESSAGE = "bot_message"
+    AGENT_START = "agent_start"
 
-    class Event(TypedDict, total=False):
-        type: str
-        text: str | None
-        timestamp: str
 
-    events: list[Event] = []
+class EventRecord(TypedDict, total=False):
+    type: str
+    text: str | None
+    timestamp: str
+
+
+class ConversationHistory(BaseModel):
+    events: list[EventRecord] = []
+
+
+class Conversation:
+    history: "ConversationHistory" = ConversationHistory()
     cancel_events: list[int] = []
-    event_bus: AsyncEventBus[EventType, Event] = AsyncEventBus()
+    event_bus: AsyncEventBus[EventType, EventRecord] = AsyncEventBus()
 
     def cancel_all(self, except_event: asyncio.Event | None = None):
         for event_id in self.cancel_events:
@@ -139,7 +145,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cancel_event = asyncio.Event()
 
     conversation = conversations[chat_id]
-    conversation.events.append(
+    conversation.history.events.append(
         {
             "type": "user_message",
             "text": user_text,
@@ -147,7 +153,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         }
     )
     conversation.cancel_events.append(add_event(cancel_event))
-    conversation.event_bus.emit(Conversation.EventType.USER_MESSAGE, {"text": user_text})
+    conversation.event_bus.emit(EventType.USER_MESSAGE, {"text": user_text})
     asyncio.create_task(context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING))
 
     async def wait_seconds(seconds: float):
@@ -182,7 +188,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         Sends or edits a message with the given text.
         """
         logger.info(f"Sending message: {text}")
-        conversation.events.append(
+        conversation.history.events.append(
             {
                 "type": "bot_message",
                 "text": text,
@@ -233,26 +239,24 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             send_message,
             cancel_other_agents,
         ],
-        builtin_tools=[WebSearchTool(), WebFetchTool()],
+        builtin_tools=[WebSearchTool()],  # , WebFetchTool()],
     )
 
-    run_task: asyncio.Task
+    run_task: asyncio.Task[None]
 
-    def cancel_on_update(_: Any) -> Awaitable[None]:
+    async def cancel_on_update(_: Any) -> None:
         run_task.cancel()
 
     async def run():
-        async with conversation.event_bus.onoff(
-            Conversation.EventType.USER_MESSAGE, cancel_on_update
-        ):
-            conversation.events.append(
+        with conversation.event_bus.onoff(EventType.USER_MESSAGE, cancel_on_update):
+            conversation.history.events.append(
                 {
                     "type": "agent_start",
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
             result = await agent.run(
-                user_prompt=conversation.model_dump_json(),
+                user_prompt=conversation.history.model_dump_json(),
             )
             logger.info("Result: %s", result)
             cancel_event.set()
@@ -261,7 +265,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     run_task = asyncio.create_task(run())
 
     async def handle_cancellation():
-        await asyncio.wait([cancel_event.wait(), run_task])
+        await asyncio.wait(
+            [asyncio.create_task(cancel_event.wait()), run_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
         if not run_task.done():
             run_task.cancel()
 
