@@ -17,8 +17,15 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_KEY")
-assert BOT_TOKEN, "Please set TELEGRAM_BOT_KEY."
+
+def require_env(var_name: str) -> str:
+    value = os.getenv(var_name)
+    if not value:
+        raise OSError(f"Please set the {var_name} environment variable.")
+    return value
+
+
+BOT_TOKEN = require_env("TELEGRAM_BOT_KEY")
 
 # If you use OpenAI via pydantic-ai, you'll typically want OPENAI_API_KEY set too.
 # Optional: OPENAI_MODEL env var (default below).
@@ -31,13 +38,17 @@ stop_events: defaultdict[int, asyncio.Event] = defaultdict(asyncio.Event)
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message_queue_awaitable = asyncio.locks.Event()
+    assert update.effective_chat is not None
+    assert update.message is not None
+
+    chat_id = update.effective_chat.id
+    message = update.message
+    assert message.text is not None
+    user_text = message.text.strip()
 
     async def respond():
-        if not update.message or not update.message.text:
+        if not user_text:
             return
-
-        chat_id = update.effective_chat.id
-        user_text = update.message.text.strip()
 
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
@@ -52,7 +63,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await asyncio.sleep(seconds)
 
         async def send_message(text: str):
-            await update.message.reply_text(
+            await message.reply_text(
                 text,
             )
 
@@ -70,7 +81,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             message_history=histories[chat_id],
         )
         if result.output:
-            await update.message.reply_text(
+            await message.reply_text(
                 result.output,
             )
         histories[chat_id].extend(result.new_messages())
@@ -84,7 +95,7 @@ oai = AsyncOpenAI()
 
 
 async def on_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    if not update.message or not update.effective_chat or not update.message.text:
         return
 
     prompt = update.message.text.removeprefix("/image").strip()
@@ -105,8 +116,13 @@ async def on_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             background="transparent",
             moderation="low",
         )
+        if not resp.data or len(resp.data) == 0:
+            raise ValueError("No image data received")
 
         b64 = resp.data[0].b64_json
+        if not b64:
+            raise ValueError("No image data received")
+
         import base64
 
         img_bytes = base64.b64decode(b64)
