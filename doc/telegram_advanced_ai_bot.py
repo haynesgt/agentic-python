@@ -6,13 +6,15 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, Generic, TypedDict, TypeVar
+from io import BytesIO
+from typing import Any, Generic, Literal, TypedDict, TypeVar
 
 import logfire
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 from pydantic_ai import Agent, WebSearchTool
 from pydantic_ai.models.openai import OpenAIResponsesModel
-from telegram import Update
+from telegram import InputMediaPhoto, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
@@ -101,6 +103,8 @@ class EventType(enum.Enum):
     USER_MESSAGE = "user_message"
     BOT_MESSAGE = "bot_message"
     AGENT_START = "agent_start"
+    STARTED_GENERATING_IMAGE = "started_generating_image"
+    FINISHED_GENERATING_IMAGE = "finished_generating_image"
 
 
 class EventRecord(TypedDict, total=False):
@@ -111,6 +115,7 @@ class EventRecord(TypedDict, total=False):
 
 class ConversationHistory(BaseModel):
     events: list[EventRecord] = []
+    notes: dict[str, str] = {}
 
 
 class Conversation:
@@ -129,13 +134,21 @@ class Conversation:
 
 conversations: defaultdict[int, Conversation] = defaultdict(lambda: Conversation())
 
+oai = AsyncOpenAI()
+
 
 def escape_markdown_v2(text: str) -> str:
     escape_chars = r"\_[]()~>#+-=|{}.!"
     return "".join(f"\\{c}" if c in escape_chars else c for c in text)
 
 
+type ImageQuality = Literal["low", "medium", "high"]
+
+
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    def indicate_typing():
+        asyncio.create_task(context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING))
+
     logger.info(update)
     assert update.effective_chat is not None
     chat_id = update.effective_chat.id
@@ -154,7 +167,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     conversation.cancel_events.append(add_event(cancel_event))
     conversation.event_bus.emit(EventType.USER_MESSAGE, {"text": user_text})
-    asyncio.create_task(context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING))
+    indicate_typing()
 
     async def wait_seconds(seconds: float):
         await asyncio.sleep(seconds)
@@ -179,7 +192,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         Starts a message by sending "..." and returning the message ID to be edited later.
         """
         logger.info("Starting message...")
-        asyncio.create_task(context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING))
+        indicate_typing()
         msg = await context.bot.send_message(chat_id=chat_id, text="...")
         return msg.id
 
@@ -212,6 +225,54 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         return "message sent"
 
+    async def generate_and_send_image(
+        prompt: str, quality: ImageQuality = "low", caption: str = ""
+    ) -> None:
+        """
+        Generates an image based on the prompt and sends it to the chat.
+
+        The caption is sent along with the image.
+        """
+        logger.info(f"Generating image: {prompt=} {quality=} {caption=}")
+        # Placeholder for image generation logic
+
+        indicate_typing()
+        new_message = await message.reply_text(f"Generating image: {caption}")
+
+        try:
+            # Example: generate image, get base64, send as photo
+            indicate_typing()
+            resp = await oai.images.generate(
+                model=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1-mini"),
+                prompt=prompt,
+                size="1024x1024",
+                quality=quality,
+                background="transparent",
+                moderation="low",
+            )
+            if not resp.data or len(resp.data) == 0:
+                raise ValueError("No image data received")
+
+            b64 = resp.data[0].b64_json
+            if not b64:
+                raise ValueError("No image data received")
+
+            import base64
+
+            img_bytes = base64.b64decode(b64)
+            bio = BytesIO(img_bytes)
+            bio.name = "image.png"
+            await new_message.edit_media(media=InputMediaPhoto(media=bio, caption=caption))
+
+            # await message.reply_photo(photo=bio, caption=caption)
+        except Exception as e:
+            await new_message.edit_text(f"Image failed: {type(e).__name__}: {e}")
+            # await message.reply_text(f"Image failed: {type(e).__name__}: {e}")
+
+    def save_note(key: str, value: str) -> None:
+        conversation.history.notes[key] = value
+        logger.info(f"Saved note: {key}={value}")
+
     async def cancel_other_agents():
         conversation.cancel_all(except_event=cancel_event)
 
@@ -230,6 +291,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "If you will be sending multiple messages, for each message after the first, start with start_message to get a message ID,"
             " then use that ID in subsequent send_message calls. "
             "Do not include anything like citeturn0search8turn0search7 in your messages, which might come from search tool. "
+            "After sending a message, wait for a while and send a follow up. If the user sends a message it will cancel your wait. "
+            "Generally, send one follow up after 60 seconds, then wait and send another follow up. Send additional follow ups after 5 minutes, an hour, then 24 hours. Adapt to what the user says. "
+            "If the user asks for an image, send a short message before generating images since it takes a few seconds to generate the image. "
+            "Avoid starting multiple messages in parallel as this can lead them to arrive out of order. "
         ),
         tools=[
             wait_seconds,
@@ -238,6 +303,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             start_message,
             send_message,
             cancel_other_agents,
+            generate_and_send_image,
+            save_note,
         ],
         builtin_tools=[WebSearchTool()],  # , WebFetchTool()],
     )
