@@ -109,19 +109,51 @@ class EventType(enum.Enum):
 
 class EventRecord(TypedDict, total=False):
     type: str
+    from_user: str | None
     text: str | None
     timestamp: str
+    data: dict[str, Any] | None
 
 
 class ConversationHistory(BaseModel):
+    chat_id: int
     events: list[EventRecord] = []
     notes: dict[str, str] = {}
 
+    @staticmethod
+    def load_history(chat_id: int) -> "ConversationHistory":
+        conversation_file = f"./conversations/{chat_id}.json"
+        if os.path.exists(conversation_file):
+            with open(conversation_file) as f:
+                return ConversationHistory.model_validate_json(f.read())
+        return ConversationHistory(chat_id=chat_id)
+
+    def save_history(self) -> None:
+        conversation_file = f"./conversations/{self.chat_id}.json"
+        os.makedirs(os.path.dirname(conversation_file), exist_ok=True)
+        with open(conversation_file, "w") as f:
+            f.write(self.model_dump_json(indent=2))
+
+    def add_event(self, event: EventRecord) -> None:
+        self.events.append(event)
+        self.save_history()
+
+    def save_note(self, key: str, value: str | None) -> None:
+        if value is None:
+            if key in self.notes:
+                del self.notes[key]
+        else:
+            self.notes[key] = value
+        self.save_history()
+
 
 class Conversation:
-    history: "ConversationHistory" = ConversationHistory()
+    history: "ConversationHistory"
     cancel_events: list[int] = []
     event_bus: AsyncEventBus[EventType, EventRecord] = AsyncEventBus()
+
+    def __init__(self, chat_id: int):
+        self.history = ConversationHistory.load_history(chat_id)
 
     def cancel_all(self, except_event: asyncio.Event | None = None):
         for event_id in self.cancel_events:
@@ -132,7 +164,7 @@ class Conversation:
         self.cancel_events = []
 
 
-conversations: defaultdict[int, Conversation] = defaultdict(lambda: Conversation())
+conversations: dict[int, Conversation] = {}
 
 oai = AsyncOpenAI()
 
@@ -157,10 +189,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = (message.text or "").strip()
     cancel_event = asyncio.Event()
 
+    if chat_id not in conversations:
+        conversations[chat_id] = Conversation(chat_id=chat_id)
+
     conversation = conversations[chat_id]
-    conversation.history.events.append(
+    conversation.history.add_event(
         {
-            "type": "user_message",
+            "type": EventType.USER_MESSAGE.value,
+            "from_user": f"{message.from_user.full_name} ({message.from_user.id})"
+            if message.from_user
+            else "unknown",
             "text": user_text,
             "timestamp": datetime.now(UTC).isoformat(),
         }
@@ -201,9 +239,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         Sends or edits a message with the given text.
         """
         logger.info(f"Sending message: {text}")
-        conversation.history.events.append(
+        conversation.history.add_event(
             {
-                "type": "bot_message",
+                "type": EventType.BOT_MESSAGE.value,
                 "text": text,
                 "timestamp": datetime.now(UTC).isoformat(),
             }
@@ -234,10 +272,19 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         The caption is sent along with the image.
         """
         logger.info(f"Generating image: {prompt=} {quality=} {caption=}")
-        # Placeholder for image generation logic
+
+        conversation.history.add_event(
+            {
+                "type": EventType.STARTED_GENERATING_IMAGE.value,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "data": {"prompt": prompt, "quality": quality, "caption": caption},
+            }
+        )
 
         indicate_typing()
-        new_message = await message.reply_text(f"Generating image: {caption}")
+        new_message = await message.reply_text(
+            f"Generating image: {caption}. This may take a minute."
+        )
 
         try:
             # Example: generate image, get base64, send as photo
@@ -269,8 +316,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await new_message.edit_text(f"Image failed: {type(e).__name__}: {e}")
             # await message.reply_text(f"Image failed: {type(e).__name__}: {e}")
 
-    def save_note(key: str, value: str) -> None:
-        conversation.history.notes[key] = value
+    def save_note(key: str, value: str | None) -> None:
+        conversation.history.save_note(key, value)
         logger.info(f"Saved note: {key}={value}")
 
     async def cancel_other_agents():
@@ -316,9 +363,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     async def run():
         with conversation.event_bus.onoff(EventType.USER_MESSAGE, cancel_on_update):
-            conversation.history.events.append(
+            conversation.history.add_event(
                 {
-                    "type": "agent_start",
+                    "type": EventType.AGENT_START.value,
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
