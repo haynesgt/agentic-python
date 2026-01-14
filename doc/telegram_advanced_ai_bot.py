@@ -115,10 +115,17 @@ class EventRecord(TypedDict, total=False):
     data: dict[str, Any] | None
 
 
+class NoteRecord(BaseModel):
+    value: str
+    date: datetime
+    priority: float
+
+
 class ConversationHistory(BaseModel):
     chat_id: int
     events: list[EventRecord] = []
     notes: dict[str, str] = {}
+    note_records: dict[str, NoteRecord] = {}
 
     @staticmethod
     def load_history(chat_id: int) -> "ConversationHistory":
@@ -138,12 +145,16 @@ class ConversationHistory(BaseModel):
         self.events.append(event)
         self.save_history()
 
-    def save_note(self, key: str, value: str | None) -> None:
-        if value is None:
+    def save_note(self, key: str, value: str | None, priority: float = 0.0) -> None:
+        if value is None or value == "":
             if key in self.notes:
                 del self.notes[key]
+            if key in self.note_records:
+                del self.note_records[key]
         else:
-            self.notes[key] = value
+            self.note_records[key] = NoteRecord(
+                value=value, date=datetime.now(UTC), priority=priority
+            )
         self.save_history()
 
 
@@ -207,8 +218,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     conversation.event_bus.emit(EventType.USER_MESSAGE, {"text": user_text})
     indicate_typing()
 
-    async def wait_seconds(seconds: float):
+    async def wait_seconds(seconds: float) -> str:
+        # await context.bot.send_message(chat_id=chat_id, text=f"waiting for {seconds} seconds")
         await asyncio.sleep(seconds)
+        return "wait completed. say something interesting, and then wait even longer!"
 
     async def wait_until_time(iso_time: str):
         target_time = datetime.fromisoformat(iso_time).astimezone(UTC)
@@ -224,15 +237,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         delay = (target_time - now).total_seconds()
         if delay > 0:
             await asyncio.sleep(delay)
-
-    async def start_message() -> int:
-        """
-        Starts a message by sending "..." and returning the message ID to be edited later.
-        """
-        logger.info("Starting message...")
-        indicate_typing()
-        msg = await context.bot.send_message(chat_id=chat_id, text="...")
-        return msg.id
 
     async def send_message(text: str, msg_id: int | None = None) -> str:
         """
@@ -316,9 +320,33 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await new_message.edit_text(f"Image failed: {type(e).__name__}: {e}")
             # await message.reply_text(f"Image failed: {type(e).__name__}: {e}")
 
-    def save_note(key: str, value: str | None) -> None:
-        conversation.history.save_note(key, value)
-        logger.info(f"Saved note: {key}={value}")
+    def save_note(key: str, value: str | None, priority: float = 0.0) -> None:
+        """
+        Saves a note. Set value to empty string or None to delete the note. (literal null not string 'None')
+
+        :param key: note id
+        :type key: str
+        :param value: Description
+        :type value: str | None
+        :param priority: priority from 0 to 1
+        :type priority: float
+        """
+        conversation.history.save_note(key, value, priority)
+        logger.info(f"Saved note: {key}={value} with priority={priority}")
+
+    def debug_warning_for_developer(msg: str) -> None:
+        """
+        Warns the developer with a debug message. Use this if something unexpected happens.
+        """
+        logger.warning(f"DEBUG WARNING FOR DEVELOPER: {msg}")
+        asyncio.create_task(context.bot.send_message(chat_id=chat_id, text=f"WARNING: {msg}"))
+        conversation.history.add_event(
+            {
+                "type": "debug_warning",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "data": {"message": msg},
+            }
+        )
 
     async def cancel_other_agents():
         conversation.cancel_all(except_event=cancel_event)
@@ -335,23 +363,26 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Do not send duplicate messages. You have a tendancy to repeat yourself, avoid this. "
             "For the final output, output one or two words as a status log. "
             "wait_ methods will block you until they complete, so you will usually want to send a message before waiting. "
-            "If you will be sending multiple messages, for each message after the first, start with start_message to get a message ID,"
             " then use that ID in subsequent send_message calls. "
             "Do not include anything like citeturn0search8turn0search7 in your messages, which might come from search tool. "
             "After sending a message, wait for a while and send a follow up. If the user sends a message it will cancel your wait. "
-            "Generally, send one follow up after 60 seconds, then wait and send another follow up. Send additional follow ups after 5 minutes, an hour, then 24 hours. Adapt to what the user says. "
+            "After responding, wait 15 seconds and send a follow up. Then, repeatedly roughly twice as long and send another follow up. Do this indefinitely. ALWAYS wait and then respond with a follow up. e.g. respond, wait 60, follow up, wait 120, follow up, wait 240, follow up, etc. to no limit. Make the follow ups more and more creative and off topic as the user doesn't respond. "
+            "Don't worry if the wait function doesn't seem to be working. It is probably in test mode. "
             "If the user asks for an image, send a short message before generating images since it takes a few seconds to generate the image. "
             "Avoid starting multiple messages in parallel as this can lead them to arrive out of order. "
+            "After responding be eager to take new notes from the user and save them using save_note. Save many notes about the user's preferences and interests. You don't need to note things you don't need to remember. "
+            "Never forget to wait and then follow up after each response as well as after each follow up you send! "
+            "Try not to save more than 30 notes in total to reduce costs. Prioritize high priority notes and recent notes. "
         ),
         tools=[
             wait_seconds,
             wait_until_time,
             wait_until_seconds_after_time,
-            start_message,
             send_message,
             cancel_other_agents,
             generate_and_send_image,
             save_note,
+            debug_warning_for_developer,
         ],
         builtin_tools=[WebSearchTool()],  # , WebFetchTool()],
     )
@@ -370,7 +401,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 }
             )
             result = await agent.run(
-                user_prompt=conversation.history.model_dump_json(),
+                user_prompt=conversation.history.model_dump_json()[-10000:],
             )
             logger.info("Result: %s", result)
             cancel_event.set()
